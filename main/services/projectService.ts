@@ -30,11 +30,11 @@ function now() {
 
 function defaultNodes(): Array<{ title: string; type: string; capabilities: CapabilityId[] }> {
     return [
-        { title: '世界观草案', type: 'memo.world', capabilities: ['memo'] },
-        { title: '角色草案（KV）', type: 'kv.character', capabilities: ['kv'] },
+        { title: '世界观草案', type: 'memo.world', capabilities: ['memo', 'kv'] },
+        { title: '角色草案', type: 'kv.character', capabilities: ['kv', 'memo'] },
         { title: '大纲', type: 'memo.outline', capabilities: ['memo'] },
         { title: '剧本', type: 'memo.script', capabilities: ['memo'] },
-        { title: '分镜（镜头列表）', type: 'memo.storyboard', capabilities: ['memo', 'sandbox'] },
+        { title: '分镜（镜头列表）', type: 'storyboard.main', capabilities: ['storyboard', 'sandbox'] },
         { title: '角色设定图', type: 'image.character', capabilities: ['image'] },
         { title: '关键帧', type: 'image.keyframes', capabilities: ['image'] }
     ]
