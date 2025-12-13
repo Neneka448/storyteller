@@ -8,11 +8,11 @@ export type NodeSandbox = {
 
 export type StepNode = {
     id: string
-    nodeType?: string | null
-    uiBlocks?: Array<{ type: string; title: string }>
     title: string
+    type?: string
+    capabilities?: string[]
     status: 'idle' | 'running' | 'succeeded' | 'failed'
-    artifactSummary: string
+    artifactSummary?: string
     sandbox?: NodeSandbox
 }
 
@@ -84,22 +84,31 @@ export const usePipelineStore = defineStore('pipeline', {
     },
     actions: {
         async loadFromProject(projectId: string) {
-            const api = window.storyteller?.steps
+            const api = window.storyteller?.nodes
             if (!api?.list) return
 
             const rows = await api.list(projectId)
             if (!Array.isArray(rows) || rows.length === 0) return
 
+            // Filter out root node(s); keep only nodes that look like workflow items.
+            const items = rows.filter((r: any) => r && r.type !== 'root' && r.parentId != null)
+            items.sort((a: any, b: any) => Number(a.orderIndex) - Number(b.orderIndex))
+
+            this.edges = items
+                .map((r: any) => String(r.nodeId))
+                .slice(1)
+                .map((id: string, idx: number) => [String(items[idx].nodeId), id] as [string, string])
+
             const byId = new Map(this.nodes.map((n) => [n.id, n]))
-            this.nodes = rows.map((r) => {
-                const prev = byId.get(r.stepId)
+            this.nodes = items.map((r: any) => {
+                const id = String(r.nodeId)
+                const prev = byId.get(id)
                 return {
-                    id: r.stepId,
-                    nodeType: (r as any).nodeType ?? null,
-                    uiBlocks: (r as any).uiBlocks ?? [],
-                    title: r.title,
-                    status: (r.status as any) || 'idle',
-                    artifactSummary: r.artifactSummary,
+                    id,
+                    title: String(r.title),
+                    type: String(r.type),
+                    capabilities: Array.isArray(r.capabilities) ? r.capabilities.map(String) : [],
+                    status: (String(r.status) as any) || 'idle',
                     sandbox: prev?.sandbox
                 }
             })

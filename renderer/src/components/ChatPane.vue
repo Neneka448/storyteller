@@ -36,11 +36,13 @@ import { onMounted, onBeforeUnmount, ref, watchEffect } from 'vue'
 
 import { useChatStore } from '../stores/chat'
 import { usePipelineStore } from '../stores/pipeline'
+import { useProjectsStore } from '../stores/projects'
 
 import { getMainAgentClient } from '../agent/mainAgentClient'
 
 const chat = useChatStore()
 const pipeline = usePipelineStore()
+const projects = useProjectsStore()
 
 const chatEl = ref<any | null>(null)
 const draft = ref('')
@@ -50,6 +52,7 @@ let offDelta: null | (() => void) = null
 let offDone: null | (() => void) = null
 let offError: null | (() => void) = null
 let offToolCall: null | (() => void) = null
+let offAppEvents: null | (() => void) = null
 
 // streamId -> messageId
 const streamToMessage = new Map<string, string>()
@@ -57,6 +60,30 @@ const streamToMessage = new Map<string, string>()
 onMounted(() => {
   // 初始化时标记已加载，避免组件一直转圈
   chat.messagesLoaded = true
+
+  const events = window.storyteller?.events
+  if (events?.on) {
+    offAppEvents = events.on((e) => {
+      const type = String(e?.type ?? '')
+      const payload = e?.payload ?? {}
+
+      if (type === 'agent:tool.error') {
+        const toolName = String(payload?.toolName ?? '')
+        const error = String(payload?.error ?? '')
+        chat.addAssistantMessage(`\n\n[tool error] ${toolName || '(unknown)'}: ${error || '(no message)'}`)
+      }
+
+      if (type === 'run:failed') {
+        const nodeId = String(payload?.nodeId ?? '')
+        const capabilityId = String(payload?.capabilityId ?? '')
+        const runId = String(payload?.runId ?? '')
+        const error = String(payload?.error ?? '')
+        chat.addAssistantMessage(
+          `\n\n[run failed] ${capabilityId || '(cap)'} @ ${nodeId || '(node)'} run=${runId || '(id)'}\n${error || '(no message)'}`
+        )
+      }
+    })
+  }
 
   if (!mainAgent) return
 
@@ -91,13 +118,26 @@ onMounted(() => {
     if (mid) chat.appendMessageDelta(mid, tip)
     else chat.addAssistantMessage(tip)
 
-    // 最小闭环：收到工具调用事件 -> 执行本地 UI 动作
+    // 最小闭环：收到工具调用事件 -> 写入 sandbox 版本（append+adopt）
     if (e.name === 'injectStoryboardSandbox') {
-      const targetId = pipeline.selectedNodeId || 'step_storyboard'
-      pipeline.updateNodeSandbox(targetId, {
-        html: '<div id="root"></div>',
-        css: 'body{margin:0;font-family:system-ui;} .wrap{padding:12px} .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#111827;color:#e5e7eb;font-size:12px;margin-right:8px} .hint{color:#6b7280;font-size:12px;margin:8px 0} button{padding:6px 10px;font-size:12px}',
-        js: "const root=document.getElementById('root');\nroot.innerHTML = `\n  <div class='wrap'>\n    <div>\n      <span class='pill'>AI 注入渲染</span>\n      <span class='pill'>sandbox iframe</span>\n    </div>\n    <div class='hint'>这段 JS 在节点沙箱里执行。默认禁止网络请求（CSP）。</div>\n    <button id='btn'>点我</button>\n    <div id='out' class='hint'></div>\n  </div>\n`;\ndocument.getElementById('btn').addEventListener('click', () => {\n  document.getElementById('out').textContent = '点击已捕获：' + new Date().toLocaleString();\n});"
+      const pid = projects.active?.id || ''
+      const targetId = pipeline.selectedNodeId || pipeline.nodes[0]?.id
+      if (!pid || !targetId) return
+
+      const api = window.storyteller?.artifacts
+      if (!api?.appendVersion) return
+
+      api.appendVersion({
+        projectId: pid,
+        nodeId: targetId,
+        capabilityId: 'sandbox',
+        contentType: 'json',
+        contentJson: {
+          html: '<div id="root"></div>',
+          css: 'body{margin:0;font-family:system-ui;} .wrap{padding:12px} .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#111827;color:#e5e7eb;font-size:12px;margin-right:8px} .hint{color:#6b7280;font-size:12px;margin:8px 0} button{padding:6px 10px;font-size:12px}',
+          js: "const root=document.getElementById('root');\nroot.innerHTML = `\n  <div class='wrap'>\n    <div>\n      <span class='pill'>AI 注入渲染</span>\n      <span class='pill'>sandbox iframe</span>\n    </div>\n    <div class='hint'>这段 JS 在节点沙箱里执行。默认禁止网络请求（CSP）。</div>\n    <button id='btn'>点我</button>\n    <div id='out' class='hint'></div>\n  </div>\n`;\ndocument.getElementById('btn').addEventListener('click', () => {\n  document.getElementById('out').textContent = '点击已捕获：' + new Date().toLocaleString();\n});"
+        },
+        adopt: true
       })
     }
   })
@@ -108,6 +148,7 @@ onBeforeUnmount(() => {
   offDone?.()
   offError?.()
   offToolCall?.()
+  offAppEvents?.()
 })
 
 watchEffect(() => {

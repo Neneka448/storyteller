@@ -35,7 +35,29 @@ function createWindow() {
 
 function registerIpc() {
     const userDataPath = app.getPath('userData')
-    const { projectService: projectSvc, memoStore: artifactSvc, pipelineRunner } = getServices(userDataPath)
+    const { projectService: projectSvc, artifactStore, orchestrator, capabilityRegistry, eventBus, runRepo } = getServices(userDataPath)
+
+    // Forward core events to renderer (incremental refresh + diagnostics)
+    const forward = (type: string) =>
+        eventBus.on(type, (payload) => {
+            for (const w of BrowserWindow.getAllWindows()) {
+                try {
+                    w.webContents.send('app:event', { type, payload })
+                } catch {
+                    // ignore
+                }
+            }
+        })
+
+    forward('run:start')
+    forward('run:succeeded')
+    forward('run:failed')
+    forward('artifact:appended')
+    forward('artifact:adopted')
+    forward('agent:tool.call')
+    forward('agent:tool.result')
+    forward('agent:tool.error')
+    forward('data:changed')
 
     ipcMain.handle('settings:get', async () => getSettings({ userDataPath: app.getPath('userData') }))
     ipcMain.handle('settings:set', async (_event, partial) =>
@@ -101,25 +123,79 @@ function registerIpc() {
         return { ok: true }
     })
 
-    // Steps
-    ipcMain.handle('step:list', async (_e, projectId: string) => projectSvc.listSteps(String(projectId)))
+    // Nodes (was Steps)
+    ipcMain.handle('node:list', async (_e, projectId: string) => projectSvc.listNodes(String(projectId)))
 
-    // Artifacts (memo versions)
-    ipcMain.handle('artifact:listVersions', async (_e, projectId: string, stepId: string) =>
-        artifactSvc.listVersions(String(projectId), String(stepId))
+    // Capabilities
+    ipcMain.handle('capability:list', async () =>
+        capabilityRegistry.list().map((c) => ({ id: c.id, render: c.render ?? null }))
     )
-    ipcMain.handle('artifact:getAdopted', async (_e, projectId: string, stepId: string) =>
-        artifactSvc.getAdopted(String(projectId), String(stepId))
+
+    // Artifacts (versioned, by nodeId+capabilityId)
+    ipcMain.handle('artifact:listVersions', async (_e, projectId: string, nodeId: string, capabilityId: string) =>
+        artifactStore.listVersions({
+            projectId: String(projectId),
+            nodeId: String(nodeId),
+            capabilityId: String(capabilityId)
+        })
     )
-    ipcMain.handle('artifact:appendTextVersion', async (_e, projectId: string, stepId: string, contentText: string) =>
-        artifactSvc.appendTextVersion(String(projectId), String(stepId), String(contentText ?? ''))
+    ipcMain.handle('artifact:getAdopted', async (_e, projectId: string, nodeId: string, capabilityId: string) =>
+        artifactStore.getAdopted({
+            projectId: String(projectId),
+            nodeId: String(nodeId),
+            capabilityId: String(capabilityId)
+        })
     )
-    ipcMain.handle('artifact:adoptVersion', async (_e, projectId: string, stepId: string, versionId: string) =>
-        artifactSvc.adoptVersion(String(projectId), String(stepId), String(versionId))
+    ipcMain.handle(
+        'artifact:appendVersion',
+        async (
+            _e,
+            args: {
+                projectId: string
+                nodeId: string
+                capabilityId: string
+                contentType: 'text' | 'json' | 'image'
+                contentText?: string | null
+                contentJson?: any
+                contentUrl?: string | null
+                meta?: any
+                adopt?: boolean
+            }
+        ) =>
+            artifactStore.appendVersion({
+                projectId: String(args.projectId),
+                nodeId: String(args.nodeId),
+                capabilityId: String(args.capabilityId),
+                contentType: args.contentType,
+                contentText: args.contentText ?? null,
+                contentJson: args.contentJson,
+                contentUrl: args.contentUrl ?? null,
+                meta: args.meta ?? null,
+                adopt: Boolean(args.adopt)
+            })
+    )
+    ipcMain.handle('artifact:adoptVersion', async (_e, projectId: string, nodeId: string, capabilityId: string, versionId: string) =>
+        artifactStore.adoptVersion({
+            projectId: String(projectId),
+            nodeId: String(nodeId),
+            capabilityId: String(capabilityId),
+            versionId: String(versionId)
+        })
     )
 
     // Pipeline
-    ipcMain.handle('pipeline:runStep', async (_e, args: any) => pipelineRunner.runStep(args))
+    // Legacy pipeline runner removed in refactor; new orchestrator will be introduced next.
+
+    // Runner (Capability Orchestrator)
+    ipcMain.handle('runner:runCapability', async (_e, args: any) => orchestrator.runCapability(args))
+
+    // Observability
+    ipcMain.handle('run:list', async (_e, projectId: string, limit?: number) =>
+        runRepo.listRuns({ projectId: String(projectId), limit })
+    )
+    ipcMain.handle('run:events', async (_e, runId: string, limit?: number) =>
+        runRepo.listEvents({ runId: String(runId), limit })
+    )
 
     // Agent
     ipcMain.handle('agent:start', async (event, payload) => {

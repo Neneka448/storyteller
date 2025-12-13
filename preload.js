@@ -14,21 +14,35 @@ contextBridge.exposeInMainWorld('storyteller', {
         create: async (name) => ipcRenderer.invoke('project:create', name),
         delete: async (projectId) => ipcRenderer.invoke('project:delete', projectId)
     },
-    steps: {
-        list: async (projectId) => ipcRenderer.invoke('step:list', projectId)
+    nodes: {
+        list: async (projectId) => ipcRenderer.invoke('node:list', projectId)
+    },
+    capabilities: {
+        list: async () => ipcRenderer.invoke('capability:list')
     },
     artifacts: {
-        listVersions: async (projectId, stepId) =>
-            ipcRenderer.invoke('artifact:listVersions', projectId, stepId),
-        getAdopted: async (projectId, stepId) =>
-            ipcRenderer.invoke('artifact:getAdopted', projectId, stepId),
-        appendTextVersion: async (projectId, stepId, contentText) =>
-            ipcRenderer.invoke('artifact:appendTextVersion', projectId, stepId, contentText),
-        adoptVersion: async (projectId, stepId, versionId) =>
-            ipcRenderer.invoke('artifact:adoptVersion', projectId, stepId, versionId)
+        listVersions: async (projectId, nodeId, capabilityId) =>
+            ipcRenderer.invoke('artifact:listVersions', projectId, nodeId, capabilityId),
+        getAdopted: async (projectId, nodeId, capabilityId) =>
+            ipcRenderer.invoke('artifact:getAdopted', projectId, nodeId, capabilityId),
+        appendVersion: async (args) =>
+            ipcRenderer.invoke('artifact:appendVersion', args),
+        adoptVersion: async (projectId, nodeId, capabilityId, versionId) =>
+            ipcRenderer.invoke('artifact:adoptVersion', projectId, nodeId, capabilityId, versionId)
     },
-    pipeline: {
-        runStep: async (args) => ipcRenderer.invoke('pipeline:runStep', args)
+    runs: {
+        list: async (projectId, limit) => ipcRenderer.invoke('run:list', projectId, limit),
+        events: async (runId, limit) => ipcRenderer.invoke('run:events', runId, limit)
+    },
+    events: {
+        on: (handler) => {
+            const listener = (_event, e) => handler(e)
+            ipcRenderer.on('app:event', listener)
+            return () => ipcRenderer.removeListener('app:event', listener)
+        }
+    },
+    runner: {
+        runCapability: async (args) => ipcRenderer.invoke('runner:runCapability', args)
     },
     agent: {
         start: async (payload) => ipcRenderer.invoke('agent:start', payload),

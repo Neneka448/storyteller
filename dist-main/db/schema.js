@@ -3,6 +3,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.initSchema = initSchema;
 function initSchema(db) {
     db.pragma('journal_mode = WAL');
+    // NOTE: This is a full refactor schema reset (no compatibility/rollback).
+    // We intentionally drop legacy tables to avoid carrying old abstractions.
+    db.exec(`
+    DROP TABLE IF EXISTS artifact_versions;
+    DROP TABLE IF EXISTS artifacts;
+    DROP TABLE IF EXISTS steps;
+  `);
     // kv: settings / small blobs
     db.exec(`
     CREATE TABLE IF NOT EXISTS kv (
@@ -18,17 +25,17 @@ function initSchema(db) {
       updated_at INTEGER NOT NULL
     );
 
-    -- Step state for a project (fixed chain in v0.1)
-    CREATE TABLE IF NOT EXISTS steps (
+    CREATE TABLE IF NOT EXISTS nodes (
+      id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
-      step_id TEXT NOT NULL,
+      parent_id TEXT,
+      order_index REAL NOT NULL,
       title TEXT NOT NULL,
+      type TEXT NOT NULL,
+      capabilities_json TEXT NOT NULL,
       status TEXT NOT NULL,
-      artifact_summary TEXT NOT NULL,
-      adopted_artifact_version_id TEXT,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      PRIMARY KEY (project_id, step_id)
+      updated_at INTEGER NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS runs (
@@ -55,10 +62,13 @@ function initSchema(db) {
     CREATE TABLE IF NOT EXISTS artifacts (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
-      step_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      capability_id TEXT NOT NULL,
       type TEXT NOT NULL,
+      adopted_version_id TEXT,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      UNIQUE(project_id, node_id, capability_id)
     );
 
     CREATE TABLE IF NOT EXISTS artifact_versions (
@@ -68,18 +78,16 @@ function initSchema(db) {
       content_type TEXT NOT NULL,
       content_text TEXT,
       content_json TEXT,
+      content_url TEXT,
       meta_json TEXT,
-      prompt_summary TEXT,
-      adopted INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
       UNIQUE(artifact_id, version_index)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_steps_project ON steps(project_id);
+    CREATE INDEX IF NOT EXISTS idx_nodes_project_parent ON nodes(project_id, parent_id, order_index);
     CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);
     CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id);
-    CREATE INDEX IF NOT EXISTS idx_artifacts_project_step ON artifacts(project_id, step_id);
+    CREATE INDEX IF NOT EXISTS idx_artifacts_project_node ON artifacts(project_id, node_id, capability_id);
     CREATE INDEX IF NOT EXISTS idx_versions_artifact ON artifact_versions(artifact_id);
   `);
 }

@@ -3,6 +3,8 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
     root: __dirname,
+    // For Electron loadFile(file://...), asset URLs must be relative.
+    base: './',
     plugins: [
         vue({
             template: {

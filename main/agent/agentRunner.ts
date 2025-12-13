@@ -82,17 +82,35 @@ function safeJsonStringify(value: unknown) {
     }
 }
 
+function resolveProjectId(services: ReturnType<typeof getServices>, input: any): string {
+    const fromArgs = String(input?.projectId ?? '').trim()
+    if (fromArgs) return fromArgs
+    const active = services.projectService.getActiveProjectId()
+    if (active) return String(active)
+    throw new Error('Missing projectId (and no active project set)')
+}
+
+function resolveNodeId(input: any): string {
+    const nodeId = String(input?.nodeId ?? '').trim()
+    if (!nodeId) throw new Error('Missing nodeId')
+    return nodeId
+}
+
 function createToolRegistry(args: RunAgentArgs): ToolRegistry {
     const services = getServices(args.userDataPath)
+
+    const emitToolCall = (name: string, toolArgs: any) => {
+        args.webContents.send('agent:tool_call', {
+            streamId: args.streamId,
+            name,
+            args: toolArgs ?? {}
+        })
+    }
 
     const projectList = tool(
         async () => {
             const list = services.projectService.listProjects()
-            args.webContents.send('agent:tool_call', {
-                streamId: args.streamId,
-                name: 'projectList',
-                args: {}
-            })
+            emitToolCall('projectList', {})
             return { ok: true, projects: list, activeProjectId: services.projectService.getActiveProjectId() }
         },
         {
@@ -105,11 +123,7 @@ function createToolRegistry(args: RunAgentArgs): ToolRegistry {
     const projectCreate = tool(
         async (input: { name?: string }) => {
             const p = services.projectService.createProject(input?.name)
-            args.webContents.send('agent:tool_call', {
-                streamId: args.streamId,
-                name: 'projectCreate',
-                args: { name: input?.name }
-            })
+            emitToolCall('projectCreate', { name: input?.name })
             return { ok: true, project: p }
         },
         {
@@ -122,11 +136,7 @@ function createToolRegistry(args: RunAgentArgs): ToolRegistry {
     const projectSetActive = tool(
         async (input: { projectId: string }) => {
             services.projectService.setActiveProjectId(String(input?.projectId || ''))
-            args.webContents.send('agent:tool_call', {
-                streamId: args.streamId,
-                name: 'projectSetActive',
-                args: { projectId: input?.projectId }
-            })
+            emitToolCall('projectSetActive', { projectId: input?.projectId })
             return { ok: true }
         },
         {
@@ -136,107 +146,27 @@ function createToolRegistry(args: RunAgentArgs): ToolRegistry {
         }
     )
 
-    const memoSave = tool(
-        async (input: { stepId: string; contentText: string; projectId?: string }) => {
-            args.webContents.send('agent:tool_call', {
-                streamId: args.streamId,
-                name: 'memoSave',
-                args: {
-                    projectId: input?.projectId,
-                    stepId: input?.stepId,
-                    contentTextPreview: String(input?.contentText || '').slice(0, 120)
-                }
-            })
-            return services.pipelineRunner.runStep({
-                projectId: input?.projectId,
-                stepId: input?.stepId,
-                mode: 'run',
-                contentText: input?.contentText
-            })
+    const nodeList = tool(
+        async (input: { projectId?: string }) => {
+            const projectId = resolveProjectId(services, input)
+            emitToolCall('nodeList', { projectId })
+
+            const nodes = await services.nodeTreeRepository.listChildren({ projectId, parentId: null })
+            return { ok: true, projectId, nodes }
         },
         {
-            name: 'memoSave',
+            name: 'nodeList',
             description:
-                'Save memo text as a new version for a step and adopt it. If projectId is omitted, uses active project.',
-            schema: z.object({
-                projectId: z.string().optional(),
-                stepId: z.string().describe('Target stepId, e.g. step_world'),
-                contentText: z.string().describe('Full memo text to save')
-            })
+                'List top-level nodes (root children) for a project. Use this to find nodeId to operate on. Defaults to active project.',
+            schema: z.object({ projectId: z.string().optional() })
         }
     )
 
-    const stepRun = tool(
-        async (input: { stepId: string; instruction: string; projectId?: string }) => {
-            args.webContents.send('agent:tool_call', {
-                streamId: args.streamId,
-                name: 'stepRun',
-                args: {
-                    projectId: input?.projectId,
-                    stepId: input?.stepId,
-                    instructionPreview: String(input?.instruction || '').slice(0, 120)
-                }
-            })
-            return services.pipelineRunner.runStep({
-                projectId: input?.projectId,
-                stepId: input?.stepId,
-                mode: 'run',
-                instruction: input?.instruction
-            })
-        },
-        {
-            name: 'stepRun',
-            description:
-                'Run a step node: uses LLM when needed, saves a new version and adopts it. If projectId omitted, uses active project.',
-            schema: z.object({
-                projectId: z.string().optional(),
-                stepId: z.string().describe('Target stepId, e.g. step_world'),
-                instruction: z.string().describe('Human instruction for this step')
-            })
-        }
-    )
-
-    const stepRedo = tool(
-        async (input: { stepId: string; instruction: string; baseVersionId: string; projectId?: string }) => {
-            args.webContents.send('agent:tool_call', {
-                streamId: args.streamId,
-                name: 'stepRedo',
-                args: {
-                    projectId: input?.projectId,
-                    stepId: input?.stepId,
-                    baseVersionId: input?.baseVersionId,
-                    instructionPreview: String(input?.instruction || '').slice(0, 120)
-                }
-            })
-            return services.pipelineRunner.runStep({
-                projectId: input?.projectId,
-                stepId: input?.stepId,
-                mode: 'redo',
-                baseVersionId: input?.baseVersionId,
-                instruction: input?.instruction
-            })
-        },
-        {
-            name: 'stepRedo',
-            description:
-                'Redo a step based on a specific baseline version (baseVersionId). Saves a new version and adopts it.',
-            schema: z.object({
-                projectId: z.string().optional(),
-                stepId: z.string().describe('Target stepId, e.g. step_world'),
-                baseVersionId: z.string().describe('Baseline memo version id to redo from'),
-                instruction: z.string().describe('Human instruction describing how to redo')
-            })
-        }
-    )
 
     const debugPing = tool(
         async (input: { message: string }) => {
             const message = String(input?.message ?? '')
-            args.webContents.send('agent:tool_call', {
-                streamId: args.streamId,
-                name: 'debugPing',
-                args: { message }
-            })
+            emitToolCall('debugPing', { message })
             return { ok: true, echoed: message, ts: new Date().toISOString() }
         },
         {
@@ -252,11 +182,7 @@ function createToolRegistry(args: RunAgentArgs): ToolRegistry {
     const debugNote = tool(
         async (input: { note: string }) => {
             const note = String(input?.note ?? '')
-            args.webContents.send('agent:tool_call', {
-                streamId: args.streamId,
-                name: 'debugNote',
-                args: { note }
-            })
+            emitToolCall('debugNote', { note })
             return { ok: true, saved: false, note }
         },
         {
@@ -271,11 +197,7 @@ function createToolRegistry(args: RunAgentArgs): ToolRegistry {
 
     const injectStoryboardSandbox = tool(
         async () => {
-            args.webContents.send('agent:tool_call', {
-                streamId: args.streamId,
-                name: 'injectStoryboardSandbox',
-                args: {}
-            })
+            emitToolCall('injectStoryboardSandbox', {})
             return { ok: true }
         },
         {
@@ -286,17 +208,119 @@ function createToolRegistry(args: RunAgentArgs): ToolRegistry {
         }
     )
 
+
+    // Capability tools: auto-exposed from registry
+    const capabilityTools: ToolDef[] = []
+    for (const capability of services.capabilityRegistry.list()) {
+        if (!capability.agent) continue
+        const defs = capability.agent.getTools?.() ?? []
+        for (const def of defs) {
+            const toolName = String(def?.name ?? '').trim()
+            if (!toolName) continue
+
+            const wrapped = tool(
+                async (input: any) => {
+                    const projectId = resolveProjectId(services, input)
+                    const nodeId = resolveNodeId(input)
+
+                    const runId = services.runRepo.createRun({
+                        projectId,
+                        kind: `agent:tool:${toolName}`,
+                        inputJson: { streamId: args.streamId, toolName, args: input ?? null, nodeId, capabilityId: capability.id }
+                    })
+
+                    services.runRepo.addEvent({
+                        runId,
+                        type: 'agent:tool.call',
+                        payloadJson: { ts: Date.now(), runId, projectId, nodeId, capabilityId: capability.id, streamId: args.streamId, toolName, args: input ?? null }
+                    })
+                    services.eventBus.emit('agent:tool.call', {
+                        ts: Date.now(),
+                        runId,
+                        projectId,
+                        nodeId,
+                        capabilityId: capability.id,
+                        streamId: args.streamId,
+                        toolName,
+                        args: input ?? null
+                    })
+
+                    emitToolCall(toolName, input)
+
+                    try {
+                        const result = await capability.agent!.invokeTool(toolName, input, {
+                            projectId,
+                            nodeId,
+                            capabilityId: capability.id,
+                            runId,
+                            streamId: args.streamId,
+                            artifacts: services.artifactStore,
+                            nodeTree: services.nodeTreeRepository,
+                            events: services.eventBus
+                        })
+
+                        services.runRepo.addEvent({
+                            runId,
+                            type: 'agent:tool.result',
+                            payloadJson: { ts: Date.now(), runId, projectId, nodeId, capabilityId: capability.id, streamId: args.streamId, toolName, result }
+                        })
+                        services.eventBus.emit('agent:tool.result', {
+                            ts: Date.now(),
+                            runId,
+                            projectId,
+                            nodeId,
+                            capabilityId: capability.id,
+                            streamId: args.streamId,
+                            toolName,
+                            result
+                        })
+                        services.runRepo.setRunStatus({ runId, status: 'succeeded' })
+
+                        return result
+                    } catch (e: any) {
+                        const msg = e instanceof Error ? e.message : String(e)
+                        services.runRepo.addEvent({
+                            runId,
+                            type: 'agent:tool.error',
+                            payloadJson: { ts: Date.now(), runId, projectId, nodeId, capabilityId: capability.id, streamId: args.streamId, toolName, error: msg }
+                        })
+                        services.eventBus.emit('agent:tool.error', {
+                            ts: Date.now(),
+                            runId,
+                            projectId,
+                            nodeId,
+                            capabilityId: capability.id,
+                            streamId: args.streamId,
+                            toolName,
+                            error: msg
+                        })
+                        services.runRepo.setRunStatus({ runId, status: 'failed', error: msg })
+                        throw e
+                    }
+                },
+                {
+                    name: toolName,
+                    description: `${String(def?.description ?? '')}\n\nJSON Schema: ${safeJsonStringify(def?.schema ?? {})}`,
+                    // MVP: accept any input; capability.invokeTool validates.
+                    schema: z.any()
+                }
+            )
+
+            capabilityTools.push(wrapped)
+        }
+    }
+
     const tools = [
         projectList,
         projectCreate,
         projectSetActive,
-        stepRun,
-        stepRedo,
-        memoSave,
+        nodeList,
         debugPing,
         debugNote,
-        injectStoryboardSandbox
+        injectStoryboardSandbox,
+        ...capabilityTools
     ]
+
     return { tools, toolByName: new Map(tools.map((t) => [t.name, t])) }
 }
 
@@ -309,11 +333,15 @@ export async function runAgent(args: RunAgentArgs) {
     const model = createModel({ userDataPath: args.userDataPath })
     const { tools, toolByName } = createToolRegistry(args)
 
+    const toolNames = tools.map((t: any) => String(t?.name ?? '')).filter(Boolean)
+
     const systemPrompt =
         '你是 Storyteller 桌面端里的导演型 Agent。你可以在合适时机调用工具。\n' +
         '工具使用规则：仅当工具能更准确/可验证地满足用户请求时才调用；否则直接回答。\n' +
         '如果用户只是想确认工具链路是否工作，优先使用 debugPing / debugNote。\n' +
-        '如果用户明确要求注入/预览节点渲染，才调用 injectStoryboardSandbox。'
+        '如果用户明确要求注入/预览节点渲染，才调用 injectStoryboardSandbox。\n\n' +
+        '可用工具（tool.name 列表）：' + toolNames.join(', ') + '\n' +
+        '提示：能力工具通常需要提供 nodeId（必要时先用 nodeList 查询）。'
 
     const apiKeyFromSettings = (getSettings({ userDataPath: args.userDataPath }).apiKey || '').trim()
     const apiKeyFromEnv = (process.env.STORYTELLER_LLM_API_KEY || '').trim()

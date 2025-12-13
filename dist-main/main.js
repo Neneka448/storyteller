@@ -34,7 +34,27 @@ function createWindow() {
 }
 function registerIpc() {
     const userDataPath = electron_1.app.getPath('userData');
-    const { projectService: projectSvc, memoStore: artifactSvc, pipelineRunner } = (0, serviceContainer_1.getServices)(userDataPath);
+    const { projectService: projectSvc, artifactStore, orchestrator, capabilityRegistry, eventBus, runRepo } = (0, serviceContainer_1.getServices)(userDataPath);
+    // Forward core events to renderer (incremental refresh + diagnostics)
+    const forward = (type) => eventBus.on(type, (payload) => {
+        for (const w of electron_1.BrowserWindow.getAllWindows()) {
+            try {
+                w.webContents.send('app:event', { type, payload });
+            }
+            catch {
+                // ignore
+            }
+        }
+    });
+    forward('run:start');
+    forward('run:succeeded');
+    forward('run:failed');
+    forward('artifact:appended');
+    forward('artifact:adopted');
+    forward('agent:tool.call');
+    forward('agent:tool.result');
+    forward('agent:tool.error');
+    forward('data:changed');
     electron_1.ipcMain.handle('settings:get', async () => (0, settingsRepo_1.getSettings)({ userDataPath: electron_1.app.getPath('userData') }));
     electron_1.ipcMain.handle('settings:set', async (_event, partial) => (0, settingsRepo_1.setSettings)({ userDataPath: electron_1.app.getPath('userData') }, partial));
     electron_1.ipcMain.handle('settings:testConnection', async () => {
@@ -90,15 +110,45 @@ function registerIpc() {
         projectSvc.deleteProject(String(projectId));
         return { ok: true };
     });
-    // Steps
-    electron_1.ipcMain.handle('step:list', async (_e, projectId) => projectSvc.listSteps(String(projectId)));
-    // Artifacts (memo versions)
-    electron_1.ipcMain.handle('artifact:listVersions', async (_e, projectId, stepId) => artifactSvc.listVersions(String(projectId), String(stepId)));
-    electron_1.ipcMain.handle('artifact:getAdopted', async (_e, projectId, stepId) => artifactSvc.getAdopted(String(projectId), String(stepId)));
-    electron_1.ipcMain.handle('artifact:appendTextVersion', async (_e, projectId, stepId, contentText) => artifactSvc.appendTextVersion(String(projectId), String(stepId), String(contentText ?? '')));
-    electron_1.ipcMain.handle('artifact:adoptVersion', async (_e, projectId, stepId, versionId) => artifactSvc.adoptVersion(String(projectId), String(stepId), String(versionId)));
+    // Nodes (was Steps)
+    electron_1.ipcMain.handle('node:list', async (_e, projectId) => projectSvc.listNodes(String(projectId)));
+    // Capabilities
+    electron_1.ipcMain.handle('capability:list', async () => capabilityRegistry.list().map((c) => ({ id: c.id, render: c.render ?? null })));
+    // Artifacts (versioned, by nodeId+capabilityId)
+    electron_1.ipcMain.handle('artifact:listVersions', async (_e, projectId, nodeId, capabilityId) => artifactStore.listVersions({
+        projectId: String(projectId),
+        nodeId: String(nodeId),
+        capabilityId: String(capabilityId)
+    }));
+    electron_1.ipcMain.handle('artifact:getAdopted', async (_e, projectId, nodeId, capabilityId) => artifactStore.getAdopted({
+        projectId: String(projectId),
+        nodeId: String(nodeId),
+        capabilityId: String(capabilityId)
+    }));
+    electron_1.ipcMain.handle('artifact:appendVersion', async (_e, args) => artifactStore.appendVersion({
+        projectId: String(args.projectId),
+        nodeId: String(args.nodeId),
+        capabilityId: String(args.capabilityId),
+        contentType: args.contentType,
+        contentText: args.contentText ?? null,
+        contentJson: args.contentJson,
+        contentUrl: args.contentUrl ?? null,
+        meta: args.meta ?? null,
+        adopt: Boolean(args.adopt)
+    }));
+    electron_1.ipcMain.handle('artifact:adoptVersion', async (_e, projectId, nodeId, capabilityId, versionId) => artifactStore.adoptVersion({
+        projectId: String(projectId),
+        nodeId: String(nodeId),
+        capabilityId: String(capabilityId),
+        versionId: String(versionId)
+    }));
     // Pipeline
-    electron_1.ipcMain.handle('pipeline:runStep', async (_e, args) => pipelineRunner.runStep(args));
+    // Legacy pipeline runner removed in refactor; new orchestrator will be introduced next.
+    // Runner (Capability Orchestrator)
+    electron_1.ipcMain.handle('runner:runCapability', async (_e, args) => orchestrator.runCapability(args));
+    // Observability
+    electron_1.ipcMain.handle('run:list', async (_e, projectId, limit) => runRepo.listRuns({ projectId: String(projectId), limit }));
+    electron_1.ipcMain.handle('run:events', async (_e, runId, limit) => runRepo.listEvents({ runId: String(runId), limit }));
     // Agent
     electron_1.ipcMain.handle('agent:start', async (event, payload) => {
         const streamId = (0, node_crypto_1.randomUUID)();

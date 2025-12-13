@@ -8,14 +8,8 @@ function now() {
 }
 class ProjectService {
     userDataPath;
-    pipelineRegistry;
-    nodeRegistry;
-    defaultPipelineId;
-    constructor(userDataPath, pipelineRegistry, nodeRegistry, defaultPipelineId) {
+    constructor(userDataPath) {
         this.userDataPath = userDataPath;
-        this.pipelineRegistry = pipelineRegistry;
-        this.nodeRegistry = nodeRegistry;
-        this.defaultPipelineId = defaultPipelineId;
     }
     db() {
         return (0, sqlite_1.getDb)({ userDataPath: this.userDataPath });
@@ -49,15 +43,23 @@ class ProjectService {
         const id = (0, node_crypto_1.randomUUID)();
         const ts = now();
         const projectName = String(name || '').trim() || `新项目 ${new Date().toLocaleDateString('zh-CN')}`;
-        const pipeline = this.pipelineRegistry.get(this.defaultPipelineId).definition();
+        const defaultNodes = [
+            { nodeId: 'node_world', title: '世界观草案', type: 'memo.world', capabilities: ['memo'] },
+            { nodeId: 'node_character', title: '角色草案（KV）', type: 'kv.character', capabilities: ['kv'] },
+            { nodeId: 'node_outline', title: '大纲', type: 'memo.outline', capabilities: ['memo'] },
+            { nodeId: 'node_script', title: '剧本', type: 'memo.script', capabilities: ['memo'] },
+            { nodeId: 'node_storyboard', title: '分镜（镜头列表）', type: 'memo.storyboard', capabilities: ['memo', 'sandbox'] },
+            { nodeId: 'node_char_image', title: '角色设定图', type: 'image.character', capabilities: ['image'] },
+            { nodeId: 'node_keyframes', title: '关键帧', type: 'image.keyframes', capabilities: ['image'] }
+        ];
         const db = this.db();
         const tx = db.transaction(() => {
             db.prepare('INSERT INTO projects(id, name, created_at, updated_at) VALUES(?, ?, ?, ?)').run(id, projectName, ts, ts);
-            for (const s of pipeline.steps) {
-                db.prepare('INSERT INTO steps(project_id, step_id, title, status, artifact_summary, adopted_artifact_version_id, created_at, updated_at)\n           VALUES(?, ?, ?, ?, ?, ?, ?, ?)').run(id, s.stepId, s.title, 'idle', s.initialArtifactSummary, null, ts, ts);
-                // 由节点实现决定如何 seed（例如 memo：创建 artifact + 初始版本）
-                s.node.seed?.({ projectId: id, stepId: s.stepId, title: s.title }, s.params);
-            }
+            const rootId = (0, node_crypto_1.randomUUID)();
+            db.prepare('INSERT INTO nodes(id, project_id, parent_id, order_index, title, type, capabilities_json, status, created_at, updated_at)\n         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(rootId, id, null, 0, 'Root', 'root', JSON.stringify(['folder']), 'idle', ts, ts);
+            defaultNodes.forEach((n, idx) => {
+                db.prepare('INSERT INTO nodes(id, project_id, parent_id, order_index, title, type, capabilities_json, status, created_at, updated_at)\n           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run((0, node_crypto_1.randomUUID)(), id, rootId, idx + 1, n.title, n.type, JSON.stringify(n.capabilities), 'idle', ts, ts);
+            });
             this.setActiveProjectId(id);
         });
         tx();
@@ -70,7 +72,7 @@ class ProjectService {
             db.prepare('DELETE FROM artifacts WHERE project_id = ?').run(projectId);
             db.prepare('DELETE FROM events WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)').run(projectId);
             db.prepare('DELETE FROM runs WHERE project_id = ?').run(projectId);
-            db.prepare('DELETE FROM steps WHERE project_id = ?').run(projectId);
+            db.prepare('DELETE FROM nodes WHERE project_id = ?').run(projectId);
             db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
             const active = this.getActiveProjectId();
             if (active === projectId) {
@@ -79,22 +81,22 @@ class ProjectService {
         });
         tx();
     }
-    listSteps(projectId) {
-        const pipeline = this.pipelineRegistry.get(this.defaultPipelineId).definition();
+    listNodes(projectId) {
         const rows = this.db()
-            .prepare('SELECT project_id, step_id, title, status, artifact_summary, adopted_artifact_version_id, created_at, updated_at\n         FROM steps WHERE project_id = ? ORDER BY created_at ASC')
+            .prepare('SELECT project_id, id, parent_id, order_index, title, type, capabilities_json, status, created_at, updated_at\n' +
+            'FROM nodes WHERE project_id = ? ORDER BY order_index ASC')
             .all(projectId);
         return rows.map((r) => ({
-            nodeType: pipeline.steps.find((s) => s.stepId === r.step_id)?.node.type ?? null,
-            uiBlocks: pipeline.steps.find((s) => s.stepId === r.step_id)?.node.ui.blocks ?? [],
-            projectId: r.project_id,
-            stepId: r.step_id,
-            title: r.title,
-            status: r.status,
-            artifactSummary: r.artifact_summary,
-            adoptedArtifactVersionId: r.adopted_artifact_version_id ?? null,
-            createdAt: r.created_at,
-            updatedAt: r.updated_at
+            projectId: String(r.project_id),
+            nodeId: String(r.id),
+            parentId: r.parent_id != null ? String(r.parent_id) : null,
+            orderIndex: Number(r.order_index),
+            title: String(r.title),
+            type: String(r.type),
+            capabilities: JSON.parse(String(r.capabilities_json ?? '[]')),
+            status: String(r.status),
+            createdAt: Number(r.created_at),
+            updatedAt: Number(r.updated_at)
         }));
     }
 }

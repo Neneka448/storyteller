@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 
 import { getDb } from '../db/sqlite'
-import type { PipelineRegistry } from '../pipeline/contracts'
-import type { NodeRegistry } from '../nodes/contracts'
+
+import type { CapabilityId } from '../core'
 
 export type ProjectRow = {
     id: string
@@ -11,13 +11,15 @@ export type ProjectRow = {
     updated_at: number
 }
 
-export type StepRow = {
+export type NodeRow = {
     project_id: string
-    step_id: string
+    id: string
+    parent_id: string | null
+    order_index: number
     title: string
+    type: string
+    capabilities_json: string
     status: string
-    artifact_summary: string
-    adopted_artifact_version_id?: string | null
     created_at: number
     updated_at: number
 }
@@ -26,13 +28,20 @@ function now() {
     return Date.now()
 }
 
+function defaultNodes(): Array<{ title: string; type: string; capabilities: CapabilityId[] }> {
+    return [
+        { title: '世界观草案', type: 'memo.world', capabilities: ['memo'] },
+        { title: '角色草案（KV）', type: 'kv.character', capabilities: ['kv'] },
+        { title: '大纲', type: 'memo.outline', capabilities: ['memo'] },
+        { title: '剧本', type: 'memo.script', capabilities: ['memo'] },
+        { title: '分镜（镜头列表）', type: 'memo.storyboard', capabilities: ['memo', 'sandbox'] },
+        { title: '角色设定图', type: 'image.character', capabilities: ['image'] },
+        { title: '关键帧', type: 'image.keyframes', capabilities: ['image'] }
+    ]
+}
+
 export class ProjectService {
-    constructor(
-        private readonly userDataPath: string,
-        private readonly pipelineRegistry: PipelineRegistry,
-        private readonly nodeRegistry: NodeRegistry,
-        private readonly defaultPipelineId: string
-    ) { }
+    constructor(private readonly userDataPath: string) { }
 
     private db() {
         return getDb({ userDataPath: this.userDataPath })
@@ -47,9 +56,10 @@ export class ProjectService {
     }
 
     getActiveProjectId(): string | null {
-        const row = this.db().prepare('SELECT value FROM kv WHERE key = ?').get('projects.activeId')
+        const row = this.db().prepare('SELECT value FROM kv WHERE key = ?').get('projects.activeId') as any
         if (!row?.value) return null
-        return String(row.value)
+        const v = String(row.value)
+        return v ? v : null
     }
 
     setActiveProjectId(projectId: string) {
@@ -57,7 +67,7 @@ export class ProjectService {
             .prepare(
                 'INSERT INTO kv(key, value, updated_at) VALUES(?, ?, ?)\n         ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
             )
-            .run('projects.activeId', String(projectId), now())
+            .run('projects.activeId', String(projectId ?? ''), now())
     }
 
     getProject(projectId: string) {
@@ -73,8 +83,6 @@ export class ProjectService {
         const ts = now()
         const projectName = String(name || '').trim() || `新项目 ${new Date().toLocaleDateString('zh-CN')}`
 
-        const pipeline = this.pipelineRegistry.get(this.defaultPipelineId).definition()
-
         const db = this.db()
         const tx = db.transaction(() => {
             db.prepare('INSERT INTO projects(id, name, created_at, updated_at) VALUES(?, ?, ?, ?)').run(
@@ -84,33 +92,46 @@ export class ProjectService {
                 ts
             )
 
-            for (const s of pipeline.steps) {
-                db.prepare(
-                    'INSERT INTO steps(project_id, step_id, title, status, artifact_summary, adopted_artifact_version_id, created_at, updated_at)\n           VALUES(?, ?, ?, ?, ?, ?, ?, ?)'
-                ).run(id, s.stepId, s.title, 'idle', s.initialArtifactSummary, null, ts, ts)
+            const rootId = randomUUID()
+            db.prepare(
+                'INSERT INTO nodes(id, project_id, parent_id, order_index, title, type, capabilities_json, status, created_at, updated_at)\n         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            ).run(rootId, id, null, 0, 'Root', 'root', JSON.stringify(['folder']), 'idle', ts, ts)
 
-                // 由节点实现决定如何 seed（例如 memo：创建 artifact + 初始版本）
-                s.node.seed?.({ projectId: id, stepId: s.stepId, title: s.title }, s.params)
-            }
+            defaultNodes().forEach((n, idx) => {
+                db.prepare(
+                    'INSERT INTO nodes(id, project_id, parent_id, order_index, title, type, capabilities_json, status, created_at, updated_at)\n           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                ).run(
+                    randomUUID(),
+                    id,
+                    rootId,
+                    idx + 1,
+                    n.title,
+                    n.type,
+                    JSON.stringify(n.capabilities),
+                    'idle',
+                    ts,
+                    ts
+                )
+            })
 
             this.setActiveProjectId(id)
         })
 
         tx()
 
-        return this.getProject(id)
+        return { id, name: projectName, createdAt: ts, updatedAt: ts }
     }
 
     deleteProject(projectId: string) {
         const db = this.db()
         const tx = db.transaction(() => {
-            db.prepare('DELETE FROM artifact_versions WHERE artifact_id IN (SELECT id FROM artifacts WHERE project_id = ?)').run(
-                projectId
-            )
+            db.prepare(
+                'DELETE FROM artifact_versions WHERE artifact_id IN (SELECT id FROM artifacts WHERE project_id = ?)'
+            ).run(projectId)
             db.prepare('DELETE FROM artifacts WHERE project_id = ?').run(projectId)
             db.prepare('DELETE FROM events WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)').run(projectId)
             db.prepare('DELETE FROM runs WHERE project_id = ?').run(projectId)
-            db.prepare('DELETE FROM steps WHERE project_id = ?').run(projectId)
+            db.prepare('DELETE FROM nodes WHERE project_id = ?').run(projectId)
             db.prepare('DELETE FROM projects WHERE id = ?').run(projectId)
 
             const active = this.getActiveProjectId()
@@ -122,26 +143,73 @@ export class ProjectService {
         tx()
     }
 
-    listSteps(projectId: string) {
-        const pipeline = this.pipelineRegistry.get(this.defaultPipelineId).definition()
+    /**
+     * Legacy upgrade helper: older projects may exist without nodes (created before node-tree refactor).
+     * Seed a minimal default node tree so the renderer can show DAG + panels.
+     */
+    private ensureDefaultNodeTree(projectId: string) {
+        const db = this.db()
+        const existing = db.prepare('SELECT COUNT(1) AS c FROM nodes WHERE project_id = ?').get(projectId) as any
+        const count = Number(existing?.c ?? 0)
+        if (count > 0) return
 
-        const rows: StepRow[] = this.db()
+        const ts = now()
+        const rootId = randomUUID()
+
+        const tx = db.transaction(() => {
+            db.prepare(
+                'INSERT INTO nodes(id, project_id, parent_id, order_index, title, type, capabilities_json, status, created_at, updated_at)\n       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            ).run(rootId, projectId, null, 0, 'Root', 'root', JSON.stringify(['folder']), 'idle', ts, ts)
+
+            defaultNodes().forEach((n, idx) => {
+                db.prepare(
+                    'INSERT INTO nodes(id, project_id, parent_id, order_index, title, type, capabilities_json, status, created_at, updated_at)\n         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                ).run(
+                    randomUUID(),
+                    projectId,
+                    rootId,
+                    idx + 1,
+                    n.title,
+                    n.type,
+                    JSON.stringify(n.capabilities),
+                    'idle',
+                    ts,
+                    ts
+                )
+            })
+        })
+
+        tx()
+    }
+
+    listNodes(projectId: string) {
+        this.ensureDefaultNodeTree(projectId)
+
+        const rows: NodeRow[] = this.db()
             .prepare(
-                'SELECT project_id, step_id, title, status, artifact_summary, adopted_artifact_version_id, created_at, updated_at\n         FROM steps WHERE project_id = ? ORDER BY created_at ASC'
+                'SELECT project_id, id, parent_id, order_index, title, type, capabilities_json, status, created_at, updated_at\n' +
+                'FROM nodes WHERE project_id = ? ORDER BY order_index ASC'
             )
             .all(projectId)
 
         return rows.map((r) => ({
-            nodeType: pipeline.steps.find((s) => s.stepId === r.step_id)?.node.type ?? null,
-            uiBlocks: pipeline.steps.find((s) => s.stepId === r.step_id)?.node.ui.blocks ?? [],
-            projectId: r.project_id,
-            stepId: r.step_id,
-            title: r.title,
-            status: r.status,
-            artifactSummary: r.artifact_summary,
-            adoptedArtifactVersionId: r.adopted_artifact_version_id ?? null,
-            createdAt: r.created_at,
-            updatedAt: r.updated_at
+            projectId: String(r.project_id),
+            nodeId: String(r.id),
+            parentId: r.parent_id != null ? String(r.parent_id) : null,
+            orderIndex: Number(r.order_index),
+            title: String(r.title),
+            type: String(r.type),
+            capabilities: (() => {
+                try {
+                    const arr = JSON.parse(String(r.capabilities_json ?? '[]'))
+                    return Array.isArray(arr) ? arr.map(String) : []
+                } catch {
+                    return []
+                }
+            })(),
+            status: String(r.status),
+            createdAt: Number(r.created_at),
+            updatedAt: Number(r.updated_at)
         }))
     }
 }
