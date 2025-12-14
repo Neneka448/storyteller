@@ -126,6 +126,38 @@ AI 可以轻松生成 Mermaid 图代码表示模板结构，用户可以直接�
 
 ---
 
+### [06-context-aware-agent-workflows.md](./06-context-aware-agent-workflows.md)
+
+**核心内容**：
+- 设定写作≈代码写作：依赖关系、一致性、模块化的类比
+- RAG + 依赖图 + 工具链的上下文感知架构
+- 三种搜索策略（Vector/Graph/Grep）及其应用场景
+- 6个核心 Agent 工具的详细设计
+- 完整的交互流程模拟（创建技能、修改体系、发现遗漏）
+- 技术实现架构（Vector Search、Graph Search、Context Manager）
+- 现有体系评估与改进建议
+- 6周实施路线
+
+**关键设计**：
+- **核心洞察**：创作新设定（如技能）不能"无中生有"，必须基于已有设定（能量体系、资源系统）
+- **三重搜索**：Vector（语义相似）+ Graph（依赖关系）+ Grep（精确匹配）
+- **上下文收集**：AI 先搜索→理解→再创作（类似代码 Agent 先 import 再写代码）
+- **6个核心工具**：
+  - `search_existing_entries`：搜索已有词条
+  - `get_entry_details`：获取完整内容
+  - `analyze_dependencies`：分析依赖关系
+  - `create_entry_with_context`：基于上下文创建
+  - `validate_consistency`：验证一致性
+  - `update_entry_with_context`：影响分析后更新
+- **工作流**：意图理解 → 上下文收集 → 设定生成 → 一致性验证 → 用户审阅
+
+**适合读者**：AI 工程师、架构师、后端开发、产品经理
+
+**🎯 为什么需要这个文档**：
+用户提出核心洞察："设定写作和代码写作一样，关联和逻辑性很重要。创建技能时，能量体系、资源等都应该引用已有设定，不能无中生有。" 这个文档设计了完整的上下文感知 AI Agent 系统，让 AI 像写代码的 Agent 一样先 grep/search 已有设定，理解依赖关系，基于已有设定扩写，保持一致性。
+
+---
+
 ## 快速导航
 
 ### 按角色
