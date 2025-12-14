@@ -678,9 +678,346 @@ for (const node of nodes) {
 我现在为你创建这个节点吗？如果同意，我会基于这些字段生成临时模板。
 ```
 
+### 4.4 示例：使用 Mermaid 可视化模板（增强）
+
+**用户**：我要创建一个"魔法体系"节点
+
+**AI 回复（增强版，包含 Mermaid 图）**：
+```
+我为你设计了"魔法体系"模板。这是结构图：
+
+```mermaid
+graph TB
+    name[名称<br/>text]
+    category[分类<br/>select]
+    energySource[能量来源<br/>text]
+    castingMethod[施法方式<br/>longtext]
+    limitations[限制条件<br/>longtext]
+    famousSpells[著名法术<br/>references]
+    
+    name --> category
+    category --> energySource
+    energySource --> castingMethod
+    castingMethod --> limitations
+    
+    category -->|dependency: 影响施法方式| castingMethod
+    
+    style name fill:#e1f5ff
+    style category fill:#fff3cd
+    style limitations fill:#f8d7da
+```
+
+**字段说明**：
+1. 名称 - 魔法体系的名称
+2. 分类 - 元素系、符文系、召唤系等（影响施法方式）
+3. 能量来源 - 魔法能量的来源
+4. 施法方式 - 如何施展这类魔法（根据分类自动推荐）
+5. 限制条件 - 魔法的限制和代价（红色标识，提醒重要性）
+6. 著名法术 - 引用其他"法术"节点
+
+你可以：
+1. 直接应用这个模板
+2. 修改 Mermaid 代码调整结构
+3. 告诉我需要添加/删除哪些字段
+
+要应用这个模板吗？
+```
+
+**优势**：
+- 用户直观看到字段关系（dependency: 分类影响施法方式）
+- 颜色编码标识字段重要性（红色=关键平衡点）
+- 可以直接编辑 Mermaid 代码
+- 支持实时预览
+
 ---
 
-## 5. Prompt 工程与上下文管理
+## 5. Mermaid 可视化增强 AI 辅助
+
+### 5.1 核心优势
+
+**为什么 Mermaid 是 AI 辅助的完美伙伴**：
+1. **AI 原生支持**：LLM 可以直接生成 Mermaid 语法，无需特殊训练
+2. **用户友好**：比 JSON 配置更直观，非技术用户也能理解和修改
+3. **实时反馈**：修改代码即刻看到图形变化
+4. **版本控制友好**：Mermaid 是纯文本，易于 diff 和版本管理
+
+### 5.2 AI Tool: generate_template_diagram
+
+**新增 Tool**：生成模板的 Mermaid 可视化图
+
+```json
+{
+  "name": "generate_template_diagram",
+  "description": "为模板生成 Mermaid 可视化图，帮助用户理解和修改模板结构",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "templateId": {
+        "type": "string",
+        "description": "模板 ID，如 'char.card'"
+      },
+      "includeRelationships": {
+        "type": "boolean",
+        "description": "是否显示字段关系（依赖、分组等），默认 true"
+      },
+      "includeDataFlow": {
+        "type": "boolean",
+        "description": "是否显示数据流（派生字段的计算路径），默认 false"
+      },
+      "highlightField": {
+        "type": "string",
+        "description": "高亮显示特定字段及其关系"
+      }
+    },
+    "required": ["templateId"]
+  }
+}
+```
+
+**实现示例**：
+
+```typescript
+async function generateTemplateDiagram(args: {
+  templateId: string
+  includeRelationships?: boolean
+  includeDataFlow?: boolean
+  highlightField?: string
+}): Promise<{ mermaidCode: string; explanation: string }> {
+  // 1. 加载模板
+  const template = await templateRegistry.load(args.templateId)
+  
+  // 2. 构建 Mermaid 图
+  let mermaid = 'graph TB\n'
+  
+  // 按分组生成子图
+  const groups = extractGroups(template)
+  for (const group of groups) {
+    mermaid += `    subgraph ${group.id}[${group.label}]\n`
+    for (const field of group.fields) {
+      const label = `${field.label}<br/>${field.valueType}`
+      mermaid += `        ${field.key}[${label}]\n`
+    }
+    mermaid += `    end\n\n`
+  }
+  
+  // 生成字段关系
+  if (args.includeRelationships !== false) {
+    const relationships = extractRelationships(template)
+    for (const rel of relationships) {
+      const arrow = getArrowStyle(rel.type)
+      const label = rel.label ? `|${rel.label}|` : ''
+      mermaid += `    ${rel.source} ${arrow}${label} ${rel.target}\n`
+    }
+  }
+  
+  // 高亮字段
+  if (args.highlightField) {
+    mermaid += `\n    style ${args.highlightField} fill:#ffeb3b,stroke:#f57c00,stroke-width:3px\n`
+  }
+  
+  // 3. 生成说明
+  const explanation = generateExplanation(template, args)
+  
+  return { mermaidCode: mermaid, explanation }
+}
+```
+
+### 5.3 增强现有 Tools 返回 Mermaid
+
+**modify_template 增强**：
+
+```typescript
+// 原返回值
+{
+  success: true,
+  message: "成功添加字段 性格"
+}
+
+// 增强返回值
+{
+  success: true,
+  message: "成功添加字段 性格",
+  mermaidPreview: `
+graph TB
+    name[姓名<br/>text]
+    age[年龄<br/>number]
+    personality[性格<br/>tags]  ← 新增
+    
+    name --> age
+    age --> personality
+    
+    style personality fill:#d4edda
+  `
+}
+```
+
+**AI 回复模板**：
+```
+已成功添加"性格"字段。这是更新后的模板结构：
+
+```mermaid
+{mermaidPreview}
+```
+
+新字段特点：
+- 类型：tags（标签列表）
+- 位置：在"年龄"之后
+- 提示：用 3-5 个关键词描述性格
+
+要应用到现有角色吗？
+```
+
+### 5.4 用户修改 Mermaid 后的处理流程
+
+**场景**：用户编辑了 AI 生成的 Mermaid 代码
+
+**流程**：
+1. **用户编辑**：
+   ```mermaid
+   graph TB
+       name[姓名]
+       age[年龄]
+       occupation[职业]  ← 用户添加
+       
+       name --> age
+       age --> occupation  ← 用户添加
+   ```
+
+2. **系统解析**：
+   ```typescript
+   const changes = parseMermaidDiff(originalMermaid, editedMermaid)
+   // {
+   //   addedNodes: [{ id: 'occupation', label: '职业', type: 'text' }],
+   //   addedEdges: [{ source: 'age', target: 'occupation', type: 'sequence' }]
+   // }
+   ```
+
+3. **AI 确认**：
+   ```
+   检测到你添加了新字段"职业"。我需要确认几个细节：
+   
+   1. 字段类型：text（单行文本）还是 select（下拉选择）？
+   2. 是否有预设选项？（如：战士、法师、盗贼）
+   3. 是否必填？
+   
+   或者我可以根据常见设定自动配置。
+   ```
+
+4. **用户确认后应用**：
+   ```typescript
+   await modifyTemplate({
+     templateId: 'char.card',
+     operation: 'addField',
+     field: parsedFromMermaid
+   })
+   ```
+
+### 5.5 Mermaid + AI 的协同工作流
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  用户描述需求                                           │
+│  "我要一个角色模板，包含基础信息和性格"                │
+└──────────────────┬──────────────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────────────────────┐
+│  AI 生成 Mermaid 图                                     │
+│  - 解析需求                                             │
+│  - 推荐字段                                             │
+│  - 建立关系                                             │
+│  - 生成 Mermaid 代码                                    │
+└──────────────────┬──────────────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────────────────────┐
+│  用户预览 & 编辑                                        │
+│  ┌────────────────┬────────────────────────────────┐   │
+│  │ Mermaid 代码   │  实时图形预览                  │   │
+│  │ (可编辑)       │  (自动渲染)                    │   │
+│  └────────────────┴────────────────────────────────┘   │
+└──────────────────┬──────────────────────────────────────┘
+                   ↓
+         ┌─────────┴─────────┐
+         │ 用户满意？        │
+         └─────────┬─────────┘
+                   ↓
+            是 ↙        ↘ 否
+               ↓           ↓
+    ┌──────────────┐   ┌──────────────────┐
+    │ 应用模板     │   │ AI 帮助优化      │
+    │ (转换为图结构)│  │ "建议加XX字段"   │
+    └──────────────┘   └──────┬───────────┘
+                              ↓
+                       返回编辑步骤
+```
+
+### 5.6 实时协作示例
+
+**用户与 AI 的对话**：
+
+```
+用户：帮我设计一个武器模板
+
+AI：好的，这是初始设计：
+```mermaid
+graph TB
+    name[名称<br/>text]
+    type[类型<br/>select]
+    damage[伤害<br/>number]
+    
+    name --> type
+    type --> damage
+```
+基础字段：名称、类型、伤害。需要添加其他属性吗？
+
+用户：加上重量和稀有度
+
+AI：已添加：
+```mermaid
+graph TB
+    name[名称<br/>text]
+    type[类型<br/>select]
+    damage[伤害<br/>number]
+    weight[重量<br/>number]
+    rarity[稀有度<br/>select]
+    
+    name --> type
+    type --> damage
+    damage --> weight
+    weight --> rarity
+    
+    style rarity fill:#ffd700
+```
+稀有度用金色标识（特殊属性）。还需要其他调整吗？
+
+用户：伤害应该根据类型自动推荐
+
+AI：明白了，我加上依赖关系：
+```mermaid
+graph TB
+    name[名称<br/>text]
+    type[类型<br/>select]
+    damage[伤害<br/>number]
+    weight[重量<br/>number]
+    rarity[稀有度<br/>select]
+    
+    name --> type
+    type -->|dependency: 影响伤害| damage
+    damage --> weight
+    weight --> rarity
+    
+    style type fill:#fff3cd
+    style rarity fill:#ffd700
+```
+类型变化时，系统会推荐合理的伤害值。确定要应用吗？
+
+用户：好的，应用吧
+
+AI：✓ 模板已创建并应用。你现在可以创建武器节点了。
+```
+
+---
+
+## 6. Prompt 工程与上下文管理
 
 ### 5.1 System Prompt（模板修改助手）
 

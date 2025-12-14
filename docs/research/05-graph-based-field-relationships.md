@@ -639,22 +639,623 @@ class GraphTemplateRenderer {
 
 ---
 
-## 7. AI 辅助：图结构的优势
+## 7. AI 辅助：图结构的优势与 Mermaid 可视化
 
-### 7.1 自然语言到图
+### 7.1 核心优势：AI 生成 Mermaid 图
+
+**关键洞察**：AI 可以轻松生成 Mermaid 代码来表示图结构，让用户直观地看到和修改模板设计。
+
+**为什么 Mermaid 是完美选择**：
+1. **AI 原生支持**：大模型可以直接生成 Mermaid 语法，无需额外训练
+2. **用户可编辑**：Mermaid 代码简洁易读，用户可以直接修改
+3. **实时预览**：修改代码后立即看到图形变化
+4. **双向转换**：Mermaid ↔ 图结构数据 可以互相转换
+
+### 7.2 自然语言到 Mermaid 图
 
 **场景**：用户说"我想要一个角色模板，包含基础信息和性格，性格要根据角色定位自动推荐"。
 
-**AI 理解**：
-1. 创建节点：姓名、年龄、性别、角色定位、性格
-2. 建立关系：
-   - 姓名 → 年龄 → 性别 → 角色定位（sequence）
-   - 姓名、年龄、性别 → 基础信息组（group）
-   - 角色定位 → 性格（dependency + AI 填充）
+**AI 对话流程**：
 
-**优势**：图结构更接近自然语言的语义表达。
+```
+用户：我想要一个角色模板，包含基础信息和性格，性格要根据角色定位自动推荐
 
-### 7.2 推荐关系
+AI：好的，我为你设计了一个角色模板。这是结构图：
+
+```mermaid
+graph TB
+    name[姓名<br/>text]
+    age[年龄<br/>number]
+    gender[性别<br/>select]
+    role[角色定位<br/>select]
+    personality[性格<br/>tags]
+    
+    name -->|sequence| age
+    age -->|sequence| gender
+    gender -->|sequence| role
+    
+    name -.->|group: 基础信息| age
+    age -.->|group: 基础信息| gender
+    
+    role -->|dependency: AI推荐| personality
+    
+    style name fill:#e1f5ff
+    style age fill:#e1f5ff
+    style gender fill:#e1f5ff
+    style role fill:#fff3cd
+    style personality fill:#d4edda
+```
+
+我创建了 5 个字段：
+- 姓名、年龄、性别（基础信息组）
+- 角色定位（关键字段，影响性格推荐）
+- 性格（根据角色定位自动推荐）
+
+你可以直接修改上面的 Mermaid 代码，或者告诉我需要调整的地方。
+```
+
+**用户体验**：
+- 用户看到可视化的图形，立即理解结构
+- 可以点击"应用模板"直接创建
+- 可以说"把年龄改成出生年份"，AI 更新 Mermaid 图
+- 可以直接编辑 Mermaid 代码，系统自动解析并更新模板
+
+### 7.3 Mermaid 语法映射
+
+#### 7.3.1 节点表示
+
+```mermaid
+graph TB
+    fieldId[显示标签<br/>字段类型]
+```
+
+**示例**：
+```mermaid
+graph TB
+    name[姓名<br/>text]
+    age[年龄<br/>number]
+    personality[性格<br/>tags]
+```
+
+#### 7.3.2 关系类型表示
+
+| 关系类型 | Mermaid 语法 | 示例 |
+|---------|-------------|------|
+| Sequence（顺序） | `-->` | `name --> age` |
+| Dependency（依赖） | `-->` (带标签) | `role -->|dependency| personality` |
+| Derivation（派生） | `==>` | `birthYear ==>|age=year-$source| age` |
+| Reference（引用） | `-.->` (虚线) | `birthplace -.->|reference| location` |
+| Group（分组） | `-.->` (带group标签) | `name -.->|group: 基础信息| age` |
+| Condition（条件） | `-->` (带条件) | `role -->|if '主角'| protagonistArc` |
+
+#### 7.3.3 完整示例：角色卡模板
+
+```mermaid
+graph TB
+    subgraph 基础信息
+        name[姓名<br/>text]
+        age[年龄<br/>number]
+        gender[性别<br/>select]
+    end
+    
+    subgraph 角色设定
+        role[角色定位<br/>select]
+        protagonistArc[主角弧线<br/>longtext]
+    end
+    
+    subgraph 性格特征
+        personality[性格<br/>tags]
+        likes[喜好<br/>text]
+        fears[恐惧<br/>text]
+    end
+    
+    subgraph 背景
+        birthYear[出生年份<br/>number]
+        ageCalc[年龄段<br/>text]
+        birthplace[出生地<br/>reference]
+    end
+    
+    name --> age
+    age --> gender
+    
+    role -->|if '主角'| protagonistArc
+    role -->|dependency| personality
+    
+    birthYear ==>|年龄段=计算| ageCalc
+    birthplace -.->|reference: location| loc[地点节点]
+    
+    style name fill:#e1f5ff
+    style role fill:#fff3cd
+    style personality fill:#d4edda
+    style birthYear fill:#fce4ec
+```
+
+### 7.4 AI 对话式模板设计
+
+#### 场景 1：从零开始设计模板
+
+**用户**：帮我设计一个魔法体系模板
+
+**AI**：
+```
+我为你设计了一个魔法体系模板，包含核心要素：
+
+```mermaid
+graph TB
+    name[名称<br/>text]
+    category[分类<br/>select]
+    energySource[能量来源<br/>text]
+    castingMethod[施法方式<br/>longtext]
+    limitations[限制条件<br/>longtext]
+    famousSpells[著名法术<br/>references]
+    
+    name --> category
+    category --> energySource
+    energySource --> castingMethod
+    castingMethod --> limitations
+    
+    category -->|dependency| castingMethod
+    
+    style name fill:#e1f5ff
+    style category fill:#fff3cd
+    style limitations fill:#f8d7da
+```
+
+**关键设计**：
+- 分类会影响施法方式的推荐（dependency关系）
+- 著名法术可以引用其他"法术"节点（references类型）
+- 限制条件用警告色标识，提醒这是平衡性的关键
+
+需要调整吗？比如添加"副作用"或"学习难度"字段？
+```
+
+**用户**：加上副作用和学习难度，副作用要根据威力自动推荐
+
+**AI**：
+```
+已更新：
+
+```mermaid
+graph TB
+    name[名称<br/>text]
+    category[分类<br/>select]
+    power[威力等级<br/>rating]
+    sideEffects[副作用<br/>longtext]
+    difficulty[学习难度<br/>rating]
+    energySource[能量来源<br/>text]
+    castingMethod[施法方式<br/>longtext]
+    limitations[限制条件<br/>longtext]
+    
+    name --> category
+    category --> power
+    power --> difficulty
+    difficulty --> energySource
+    
+    power ==>|AI推荐副作用| sideEffects
+    category -->|dependency| castingMethod
+    
+    style power fill:#ffc107
+    style sideEffects fill:#f8d7da
+```
+
+**变化**：
+- 添加了"威力等级"（rating 类型，1-5星）
+- 添加了"副作用"，通过 derivation 关系自动根据威力推荐
+- 添加了"学习难度"（rating 类型）
+- 调整了显示顺序
+
+应用这个模板吗？
+```
+
+#### 场景 2：优化已有模板
+
+**用户**：我的角色模板太复杂了，帮我看看
+
+**AI**：
+```
+让我分析一下你的模板结构...
+
+检测到以下问题：
+1. 有 23 个字段，建议分组以降低复杂度
+2. "年龄"和"出生年份"同时存在，建议建立派生关系
+3. "角色定位"字段未被充分利用，可以添加条件显示
+
+我生成了优化后的结构：
+
+```mermaid
+graph TB
+    subgraph 核心信息[⭐ 核心信息 - 始终显示]
+        name[姓名]
+        role[角色定位]
+    end
+    
+    subgraph 基础属性[📊 基础属性 - 可折叠]
+        birthYear[出生年份]
+        age[年龄]
+        gender[性别]
+    end
+    
+    subgraph 角色特性[🎭 角色特性 - 条件显示]
+        protagonistArc[主角弧线]
+        antagonistMotivation[反派动机]
+    end
+    
+    birthYear ==>|自动计算| age
+    role -->|if '主角'| protagonistArc
+    role -->|if '反派'| antagonistMotivation
+    
+    style name fill:#ffeb3b
+    style role fill:#ffeb3b
+```
+
+**优化建议**：
+1. 将字段分为 3 组，降低认知负担
+2. 出生年份 → 年龄（自动计算）
+3. 根据角色定位条件显示相关字段（主角弧线/反派动机）
+
+要应用这些优化吗？
+```
+
+### 7.5 Mermaid 代码 ↔ 图结构数据的转换
+
+#### 7.5.1 解析 Mermaid 到图结构
+
+**输入（Mermaid）**：
+```mermaid
+graph TB
+    name[姓名<br/>text]
+    age[年龄<br/>number]
+    name --> age
+    name -.->|group: 基础| age
+```
+
+**输出（图结构）**：
+```json
+{
+  "nodes": [
+    {
+      "id": "name",
+      "label": "姓名",
+      "valueType": "text"
+    },
+    {
+      "id": "age",
+      "label": "年龄",
+      "valueType": "number"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge1",
+      "type": "sequence",
+      "source": "name",
+      "target": "age"
+    },
+    {
+      "id": "edge2",
+      "type": "group",
+      "source": "name",
+      "target": "age",
+      "config": {
+        "groupId": "基础"
+      }
+    }
+  ]
+}
+```
+
+#### 7.5.2 生成 Mermaid 从图结构
+
+**实现示例**：
+```typescript
+function graphToMermaid(graph: TemplateGraph): string {
+  let mermaid = 'graph TB\n'
+  
+  // 1. 生成节点
+  for (const node of graph.nodes) {
+    const label = `${node.label}<br/>${node.valueType}`
+    mermaid += `    ${node.id}[${label}]\n`
+  }
+  
+  mermaid += '\n'
+  
+  // 2. 生成边
+  for (const edge of graph.edges) {
+    let arrow = '-->'
+    let label = ''
+    
+    switch (edge.type) {
+      case 'derivation':
+        arrow = '==>'
+        label = edge.config?.formula || 'derivation'
+        break
+      case 'reference':
+      case 'group':
+        arrow = '-.->'
+        label = edge.metadata?.label || edge.type
+        break
+      case 'condition':
+        label = `if ${edge.config?.condition}`
+        break
+      case 'dependency':
+        label = 'dependency'
+        break
+    }
+    
+    const edgeLine = label 
+      ? `    ${edge.source} ${arrow}|${label}| ${edge.target}\n`
+      : `    ${edge.source} ${arrow} ${edge.target}\n`
+    
+    mermaid += edgeLine
+  }
+  
+  return mermaid
+}
+```
+
+### 7.6 实时预览与编辑工作流
+
+**UI 设计**：
+
+```
+┌────────────────────────────────────────────────────────┐
+│  模板设计器                                            │
+├────────────────────────────────────────────────────────┤
+│  [对话模式] [Mermaid 编辑] [可视化编辑]               │
+├──────────────────────┬─────────────────────────────────┤
+│  Mermaid 代码        │  实时预览                       │
+│  ┌──────────────────┐│  ┌─────────────────────────┐  │
+│  │ graph TB         ││  │   ┌──────┐              │  │
+│  │   name[姓名]     ││  │   │ 姓名  │              │  │
+│  │   age[年龄]      ││  │   └──┬───┘              │  │
+│  │   name --> age   ││  │      │                  │  │
+│  │                  ││  │      ↓                  │  │
+│  │                  ││  │   ┌──────┐              │  │
+│  │                  ││  │   │ 年龄  │              │  │
+│  │                  ││  │   └──────┘              │  │
+│  │                  ││  │                         │  │
+│  └──────────────────┘│  └─────────────────────────┘  │
+│  [格式化] [验证]     │  [导出JSON] [应用模板]        │
+└──────────────────────┴─────────────────────────────────┘
+```
+
+**工作流程**：
+1. **AI 生成初始 Mermaid**：用户描述需求 → AI 生成代码
+2. **用户编辑代码**：直接修改 Mermaid 语法
+3. **实时预览**：左侧代码变化 → 右侧图形实时更新
+4. **验证与提示**：语法错误高亮，AI 提供修复建议
+5. **应用模板**：点击"应用模板"→ 转换为图结构 → 保存
+
+### 7.7 AI Tool: generate_template_mermaid
+
+**Tool 定义**：
+
+```json
+{
+  "name": "generate_template_mermaid",
+  "description": "根据用户描述生成模板的 Mermaid 图代码，用户可以直接编辑和预览",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "description": {
+        "type": "string",
+        "description": "用户对模板的描述，如'角色模板，包含基础信息和性格'"
+      },
+      "nodeType": {
+        "type": "string",
+        "description": "节点类型，如 'char.card', 'world.magic.system'"
+      },
+      "complexity": {
+        "type": "string",
+        "enum": ["simple", "medium", "complex"],
+        "description": "模板复杂度：simple=5-10字段，medium=10-20字段，complex=20+字段"
+      },
+      "includeRelationships": {
+        "type": "boolean",
+        "description": "是否包含字段关系（依赖、派生等），默认 true"
+      }
+    },
+    "required": ["description"]
+  }
+}
+```
+
+**实现示例**：
+
+```typescript
+async function generateTemplateMermaid(args: {
+  description: string
+  nodeType?: string
+  complexity?: string
+  includeRelationships?: boolean
+}): Promise<{ mermaidCode: string; explanation: string }> {
+  const prompt = `你是一个模板设计专家。根据以下描述，生成一个 Mermaid 图代码来表示模板结构。
+
+用户描述：${args.description}
+节点类型：${args.nodeType || '未指定'}
+复杂度：${args.complexity || 'medium'}
+包含关系：${args.includeRelationships !== false ? '是' : '否'}
+
+要求：
+1. 使用 Mermaid 的 graph TB 格式
+2. 节点格式：nodeId[显示标签<br/>字段类型]
+3. 关系类型：
+   - 顺序：-->
+   - 派生：==> (带公式标签)
+   - 引用：-.-> (虚线)
+   - 分组：-.-> (带group标签)
+   - 条件：--> (带if条件)
+4. 使用 subgraph 对字段分组
+5. 使用 style 添加颜色区分
+
+生成 Mermaid 代码：`
+
+  const response = await llmService.generate(prompt)
+  
+  // 提取 Mermaid 代码块
+  const mermaidMatch = response.match(/```mermaid\n([\s\S]*?)\n```/)
+  const mermaidCode = mermaidMatch ? mermaidMatch[1] : response
+  
+  // 生成说明
+  const explanation = `我为你生成了模板结构图。你可以：
+1. 直接查看图形预览
+2. 编辑 Mermaid 代码调整结构
+3. 点击"应用模板"创建实际模板
+
+主要字段：${extractFieldNames(mermaidCode).join('、')}
+关系类型：${extractRelationshipTypes(mermaidCode).join('、')}`
+  
+  return { mermaidCode, explanation }
+}
+```
+
+### 7.8 推荐关系（增强版：带 Mermaid 预览）
+
+**场景**：用户添加了"出生年份"字段。
+
+**AI 推荐**：
+```
+检测到你添加了"出生年份"字段。我建议添加"年龄"字段并建立派生关系：
+
+```mermaid
+graph LR
+    birthYear[出生年份<br/>number] ==>|age=year-$source| age[年龄<br/>number]
+    age ==>|自动分类| ageGroup[年龄段<br/>text]
+    
+    style birthYear fill:#e1f5ff
+    style age fill:#d4edda
+    style ageGroup fill:#d4edda
+```
+
+**效果**：
+- 用户输入出生年份后，年龄自动计算
+- 年龄段（少年/成年/老年）也会自动分类
+- 无需手动维护，保持数据一致性
+
+要应用这个建议吗？
+```
+
+### 7.9 优化图结构（AI 布局优化）
+
+**场景**：用户的图结构很混乱，节点位置重叠。
+
+**AI 辅助流程**：
+1. **分析图结构**：
+   ```
+   分析你的模板结构...
+   - 发现 18 个节点
+   - 26 条边关系
+   - 检测到 3 个强连通分量
+   - 建议按层级重新组织
+   ```
+
+2. **生成优化后的 Mermaid**：
+   ```mermaid
+   graph TB
+       subgraph layer1[第一层：核心信息]
+           name[姓名]
+           role[角色定位]
+       end
+       
+       subgraph layer2[第二层：基础属性]
+           age[年龄]
+           gender[性别]
+       end
+       
+       subgraph layer3[第三层：派生属性]
+           personality[性格]
+           appearance[外观]
+       end
+       
+       name --> age
+       role --> personality
+       age --> appearance
+   ```
+
+3. **应用布局算法**：
+   - 使用 Dagre 算法自动计算节点位置
+   - 最小化边交叉
+   - 平衡层级分布
+
+---
+
+## 8. Mermaid 集成实施建议
+
+### 8.1 前端组件
+
+**Mermaid 编辑器组件**：
+```vue
+<template>
+  <div class="mermaid-editor">
+    <div class="editor-pane">
+      <textarea v-model="mermaidCode" @input="onCodeChange" />
+      <div class="toolbar">
+        <button @click="format">格式化</button>
+        <button @click="validate">验证</button>
+        <button @click="aiOptimize">AI 优化</button>
+      </div>
+    </div>
+    
+    <div class="preview-pane">
+      <div ref="mermaidPreview" class="mermaid-diagram"></div>
+      <div class="actions">
+        <button @click="exportJson">导出 JSON</button>
+        <button @click="applyTemplate">应用模板</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import mermaid from 'mermaid'
+import { ref, watch } from 'vue'
+
+const mermaidCode = ref('')
+const mermaidPreview = ref<HTMLElement>()
+
+watch(mermaidCode, async (newCode) => {
+  if (mermaidPreview.value) {
+    const { svg } = await mermaid.render('preview', newCode)
+    mermaidPreview.value.innerHTML = svg
+  }
+})
+
+async function aiOptimize() {
+  const optimized = await window.storyteller.ai.optimizeMermaid(mermaidCode.value)
+  mermaidCode.value = optimized
+}
+
+async function applyTemplate() {
+  const graph = parseMermaidToGraph(mermaidCode.value)
+  await window.storyteller.templates.createFromGraph(graph)
+}
+</script>
+```
+
+### 8.2 AI 集成点
+
+**在现有 AI Tools 中增强**：
+
+1. **modify_template**：返回 Mermaid 预览
+2. **recommend_template_fields**：返回 Mermaid 预览
+3. **新增 generate_template_mermaid**：专门生成 Mermaid 图
+
+**Chat UI 增强**：
+- AI 回复中自动渲染 Mermaid 图
+- 用户可以点击"编辑图"进入 Mermaid 编辑器
+- 支持图片导出和分享
+
+### 8.3 数据流
+
+```
+用户描述 → AI 理解 → 生成 Mermaid → 用户预览/编辑 → 解析为图结构 → 保存模板
+                ↓                                    ↑
+            Few-shot 示例                     双向转换引擎
+```
+
+---
+
+## 9. 推荐关系
 
 **场景**：用户添加了"出生年份"字段。
 
@@ -665,14 +1266,9 @@ class GraphTemplateRenderer {
   - 建立派生边：出生年份 → 年龄
   - 配置公式：`new Date().getFullYear() - $source`
 
-### 7.3 优化图结构
+---
 
-**场景**：用户的图结构很混乱，节点位置重叠。
-
-**AI 辅助**：
-- 点击"AI 优化布局"
-- AI 分析图结构，应用布局算法（如 Dagre、Force-directed）
-- 自动调整节点位置，使图清晰易读
+## 10. 实施建议
 
 ---
 

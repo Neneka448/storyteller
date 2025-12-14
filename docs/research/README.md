@@ -44,7 +44,9 @@
 - `modify_template` Tool：通过对话添加/删除/修改字段
 - `auto_fill_field` Tool：根据上下文自动填充字段内容
 - `recommend_template_fields` Tool：为新节点类型推荐字段
+- `generate_template_diagram` Tool：生成 Mermaid 可视化图（新增）
 - Few-shot 示例库与 Prompt 策略
+- **Mermaid 集成**：AI 生成 Mermaid 图展示模板结构，用户可直接编辑代码
 
 **适合读者**：AI 工程师、后端开发、产品经理
 
@@ -118,6 +120,9 @@
 
 **💡 为什么需要这个文档**：
 针对用户反馈"JSON schema 编辑对用户不友好"的问题，提出了更直观的图结构方案。图结构让字段关系可视化，用户通过拖拽连线即可建立复杂的依赖、派生、条件关系，比编辑配置文件更友好。
+
+**🎨 Mermaid 可视化增强**：
+AI 可以轻松生成 Mermaid 图代码表示模板结构，用户可以直接在浏览器中看到图形预览并编辑代码。这让模板设计变得极其简单：用户描述需求 → AI 生成 Mermaid 图 → 用户预览/编辑 → 一键应用。Mermaid 代码简洁易读，AI 原生支持，是完美的中间格式。
 
 ---
 
