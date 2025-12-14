@@ -1,6 +1,11 @@
 <template>
   <div class="node" :class="{ selected: data.selected }">
-    <div class="title">{{ data.title }}</div>
+    <div class="titleRow">
+      <div class="title">{{ data.title }}</div>
+      <button v-if="hasChildren" class="toggle" type="button" @click="toggle">
+        {{ isCollapsed ? '▸' : '▾' }}
+      </button>
+    </div>
     <div class="meta">
       <span class="status" :data-status="data.status">{{ statusText }}</span>
       <span class="summary">{{ data.artifactSummary }}</span>
@@ -11,8 +16,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { usePipelineStore } from '../stores/pipeline'
+
 type Props = {
   data: {
+    id: string
     title: string
     status: 'idle' | 'running' | 'succeeded' | 'failed'
     artifactSummary: string
@@ -21,6 +29,28 @@ type Props = {
 }
 
 const props = defineProps<Props>()
+
+const pipeline = usePipelineStore()
+
+const hasChildren = computed(() => {
+  const nodeId = String((props as any).data?.id ?? '')
+  if (!nodeId) return false
+  return pipeline.nodes.some((n) => String(n.parentId ?? '') === nodeId)
+})
+
+const isCollapsed = computed(() => {
+  const nodeId = String((props as any).data?.id ?? '')
+  if (!nodeId) return false
+  return pipeline.collapsedById[nodeId] === true
+})
+
+function toggle(e: MouseEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  const nodeId = String((props as any).data?.id ?? '')
+  if (!nodeId) return
+  pipeline.toggleCollapsed(nodeId)
+}
 
 const statusText = computed(() => {
   switch (props.data.status) {
@@ -44,6 +74,24 @@ const statusText = computed(() => {
   border: 1px solid rgba(0, 0, 0, 0.12);
   background: rgba(255, 255, 255, 0.92);
   color: #111;
+}
+
+.titleRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.toggle {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  width: 26px;
+  height: 22px;
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
 }
 
 .node.selected {

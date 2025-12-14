@@ -8,23 +8,34 @@
           <template v-if="node && lastRunText">｜最近：{{ lastRunText }}</template>
         </div>
         <div v-if="node && lastErrorText" class="sub error">失败原因：{{ lastErrorText }}</div>
-        <div v-if="node && panelSummary" class="sub">render：{{ panelSummary }}</div>
+        <div v-if="node && renderSummary" class="sub">render：{{ renderSummary }}</div>
       </div>
     </div>
 
     <div v-if="!node" class="empty">在上方 DAG 里点一个节点查看详情。</div>
 
     <div v-else class="content">
-      <component
-        v-for="p in panels"
-        :key="p.key"
-        :is="p.component"
+      <TemplateRenderer
+        v-if="activeTemplate"
+        :template="activeTemplate"
         :project-id="projectId"
         :node-id="String(node?.id || '')"
-        :capability-id="p.capabilityId"
-        :component-name="p.componentName"
+        :node-capabilities="(node?.capabilities ?? []) as any"
         :refresh-seq="refreshSeq"
       />
+
+      <template v-else>
+        <component
+          v-for="p in panels"
+          :key="p.key"
+          :is="p.component"
+          :project-id="projectId"
+          :node-id="String(node?.id || '')"
+          :capability-id="p.capabilityId"
+          :component-name="p.componentName"
+          :refresh-seq="refreshSeq"
+        />
+      </template>
     </div>
   </div>
 </template>
@@ -37,12 +48,21 @@ import { useProjectsStore } from '../stores/projects'
 
 import { capabilityComponentRegistry } from './capabilityComponentRegistry'
 
+import TemplateRenderer from './template/TemplateRenderer.vue'
+import { resolveTemplate } from '../templates/registry'
+
 const pipeline = usePipelineStore()
 const projects = useProjectsStore()
 
 const projectId = computed(() => projects.active?.id || '')
 
 const node = computed(() => pipeline.selectedNode)
+
+const activeTemplate = computed(() => {
+  const t = String(node.value?.type ?? '')
+  if (!t) return null
+  return resolveTemplate(t)
+})
 
 type CapabilityView = { id: string; render: { componentName: string; uiOptions?: Record<string, any> } | null }
 
@@ -116,8 +136,9 @@ const panels = computed(() => {
   })
 })
 
-const panelSummary = computed(() => {
+const renderSummary = computed(() => {
   if (!node.value) return ''
+  if (activeTemplate.value) return `${activeTemplate.value.label}（template）`
   if (!panels.value.length) return ''
   return panels.value
     .map((p) => {

@@ -28,16 +28,130 @@ function now() {
     return Date.now()
 }
 
-function defaultNodes(): Array<{ title: string; type: string; capabilities: CapabilityId[] }> {
+type SeedNode = {
+    title: string
+    type: string
+    capabilities: CapabilityId[]
+    children?: SeedNode[]
+}
+
+function defaultSeedTree(): SeedNode[] {
+    // Align with docs/business/01-world-structure.md + 02-capabilities-interaction.md
+    // - Composite nodes are just structural containers (capabilities: [])
+    // - Leaf nodes carry content via capabilities (kv/memo/image/sandbox/storyboard)
     return [
-        { title: '世界观草案', type: 'memo.world', capabilities: ['memo', 'kv'] },
-        { title: '角色草案', type: 'kv.character', capabilities: ['kv', 'memo'] },
-        { title: '大纲', type: 'memo.outline', capabilities: ['memo'] },
-        { title: '剧本', type: 'memo.script', capabilities: ['memo'] },
-        { title: '分镜（镜头列表）', type: 'storyboard.main', capabilities: ['storyboard', 'sandbox'] },
-        { title: '角色设定图', type: 'image.character', capabilities: ['image'] },
-        { title: '关键帧', type: 'image.keyframes', capabilities: ['image'] }
+        {
+            title: '世界观设定',
+            type: 'world.root',
+            capabilities: ['kv', 'memo'],
+            children: [
+                {
+                    title: '地理与环境',
+                    type: 'world.category.geo',
+                    capabilities: ['kv', 'memo'],
+                    children: [
+                        { title: '地形设定', type: 'world.geo.terrain', capabilities: ['kv'] },
+                        { title: '世界地图', type: 'world.geo.map', capabilities: ['image'] },
+                        { title: '气候与灾害', type: 'world.geo.climate', capabilities: ['kv'] }
+                    ]
+                },
+                {
+                    title: '社会与文明',
+                    type: 'world.category.society',
+                    capabilities: ['kv', 'memo'],
+                    children: [
+                        { title: '政治制度', type: 'world.society.politics', capabilities: ['kv'] },
+                        { title: '经济贸易', type: 'world.society.economy', capabilities: ['kv'] },
+                        { title: '势力关系图（可视化）', type: 'world.society.factions', capabilities: ['sandbox'] }
+                    ]
+                },
+                {
+                    title: '生物与生态',
+                    type: 'world.category.ecology',
+                    capabilities: ['kv', 'memo'],
+                    children: [
+                        { title: '植被大全', type: 'world.ecology.plants', capabilities: ['kv'] },
+                        {
+                            title: '怪物图鉴',
+                            type: 'world.ecology.monsters',
+                            capabilities: ['kv', 'memo'],
+                            children: [
+                                { title: '恐狼', type: 'char.card.wolf', capabilities: ['kv', 'memo', 'image'] },
+                                { title: '巨龙', type: 'char.card.dragon', capabilities: ['kv', 'memo', 'image'] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    title: '历史与传承',
+                    type: 'world.category.history',
+                    capabilities: ['kv', 'memo'],
+                    children: [
+                        // Timeline capability is not implemented yet; use memo as MVP.
+                        { title: '编年史', type: 'world.history.timeline', capabilities: ['memo'] },
+                        { title: '英雄传说', type: 'world.history.legends', capabilities: ['memo'] }
+                    ]
+                }
+            ]
+        },
+        // Creative workflow outputs (still top-level for MVP)
+        { title: '角色草案', type: 'char.draft', capabilities: ['kv', 'memo', 'image'] },
+        { title: '大纲', type: 'writing.outline', capabilities: ['memo'] },
+        { title: '剧本', type: 'writing.script', capabilities: ['memo'] },
+        { title: '分镜（镜头列表）', type: 'storyboard.main', capabilities: ['storyboard', 'sandbox'] }
     ]
+}
+
+function insertSeedNodes(args: {
+    db: any
+    projectId: string
+    parentId: string
+    nodes: SeedNode[]
+    createdAt: number
+}) {
+    const { db, projectId, parentId, nodes, createdAt } = args
+
+    nodes.forEach((n, idx) => {
+        const id = randomUUID()
+        db.prepare(
+            'INSERT INTO nodes(id, project_id, parent_id, order_index, title, type, capabilities_json, status, created_at, updated_at)\n' +
+            'VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        ).run(
+            id,
+            projectId,
+            parentId,
+            idx + 1,
+            n.title,
+            n.type,
+            JSON.stringify(n.capabilities ?? []),
+            'idle',
+            createdAt,
+            createdAt
+        )
+
+        if (Array.isArray(n.children) && n.children.length > 0) {
+            insertSeedNodes({ db, projectId, parentId: id, nodes: n.children, createdAt })
+        }
+    })
+}
+
+function ensureWorldCompositeCapabilities(db: any, projectId: string) {
+    // For already-created projects (seeded before composites had any capability),
+    // make composite nodes editable by attaching a default KV panel.
+    const ts = now()
+    const kvMemoJson = JSON.stringify(['kv', 'memo'])
+
+    db.prepare(
+        "UPDATE nodes SET capabilities_json = ?, updated_at = ? WHERE project_id = ? AND type = 'world.root' AND (capabilities_json = '[]' OR capabilities_json = '[\"kv\"]')"
+    ).run(kvMemoJson, ts, projectId)
+
+    db.prepare(
+        "UPDATE nodes SET capabilities_json = ?, updated_at = ? WHERE project_id = ? AND type LIKE 'world.category.%' AND (capabilities_json = '[]' OR capabilities_json = '[\"kv\"]')"
+    ).run(kvMemoJson, ts, projectId)
+
+    db.prepare(
+        "UPDATE nodes SET capabilities_json = ?, updated_at = ? WHERE project_id = ? AND type = 'world.ecology.monsters' AND (capabilities_json = '[]' OR capabilities_json = '[\"kv\"]')"
+    ).run(kvMemoJson, ts, projectId)
 }
 
 export class ProjectService {
@@ -97,22 +211,7 @@ export class ProjectService {
                 'INSERT INTO nodes(id, project_id, parent_id, order_index, title, type, capabilities_json, status, created_at, updated_at)\n         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             ).run(rootId, id, null, 0, 'Root', 'root', JSON.stringify(['folder']), 'idle', ts, ts)
 
-            defaultNodes().forEach((n, idx) => {
-                db.prepare(
-                    'INSERT INTO nodes(id, project_id, parent_id, order_index, title, type, capabilities_json, status, created_at, updated_at)\n           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-                ).run(
-                    randomUUID(),
-                    id,
-                    rootId,
-                    idx + 1,
-                    n.title,
-                    n.type,
-                    JSON.stringify(n.capabilities),
-                    'idle',
-                    ts,
-                    ts
-                )
-            })
+            insertSeedNodes({ db, projectId: id, parentId: rootId, nodes: defaultSeedTree(), createdAt: ts })
 
             this.setActiveProjectId(id)
         })
@@ -161,22 +260,7 @@ export class ProjectService {
                 'INSERT INTO nodes(id, project_id, parent_id, order_index, title, type, capabilities_json, status, created_at, updated_at)\n       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             ).run(rootId, projectId, null, 0, 'Root', 'root', JSON.stringify(['folder']), 'idle', ts, ts)
 
-            defaultNodes().forEach((n, idx) => {
-                db.prepare(
-                    'INSERT INTO nodes(id, project_id, parent_id, order_index, title, type, capabilities_json, status, created_at, updated_at)\n         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-                ).run(
-                    randomUUID(),
-                    projectId,
-                    rootId,
-                    idx + 1,
-                    n.title,
-                    n.type,
-                    JSON.stringify(n.capabilities),
-                    'idle',
-                    ts,
-                    ts
-                )
-            })
+            insertSeedNodes({ db, projectId, parentId: rootId, nodes: defaultSeedTree(), createdAt: ts })
         })
 
         tx()
@@ -184,6 +268,13 @@ export class ProjectService {
 
     listNodes(projectId: string) {
         this.ensureDefaultNodeTree(projectId)
+
+        // Keep seeded projects usable: composites should not be empty.
+        try {
+            ensureWorldCompositeCapabilities(this.db(), projectId)
+        } catch {
+            // best-effort
+        }
 
         const rows: NodeRow[] = this.db()
             .prepare(
