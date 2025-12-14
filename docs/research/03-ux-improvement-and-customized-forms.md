@@ -160,6 +160,8 @@
 │  性格 (未填写)                      │
 │  💡 提示：用 3-5 个关键词描述性格   │
 │  [手动填写]  [✨ AI 填充]          │
+│  ↑ 需提供 aria-label="提示" 和      │
+│    aria-label="AI 填充按钮"          │
 └─────────────────────────────────────┘
 ```
 
@@ -396,6 +398,7 @@ export type TemplateField = {
 │  "我从不回头看爆炸"                     │
 └─────────────────────────────────────────┘
      ↑ 大字体、强调色背景
+     ↑ 图标需 aria-label="对话"
 ```
 
 ---
@@ -416,11 +419,13 @@ export type TemplateField = {
 
 ```vue
 <div class="field-actions">
-  <button @click="aiFill" title="AI 填充">✨</button>
-  <button @click="aiRegenerate" title="重新生成">🔄</button>
-  <button v-if="isLongText" @click="aiContinue" title="续写">📝</button>
+  <button @click="aiFill" title="AI 填充" aria-label="AI 填充">✨</button>
+  <button @click="aiRegenerate" title="重新生成" aria-label="重新生成">🔄</button>
+  <button v-if="isLongText" @click="aiContinue" title="续写" aria-label="AI 续写">📝</button>
 </div>
 ```
+
+**注意**：所有图标按钮必须包含 `aria-label` 属性以支持屏幕阅读器。
 
 ### 5.2 版本对比 Diff 视图
 
